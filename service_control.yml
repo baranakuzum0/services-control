@@ -18,7 +18,7 @@
 
     - name: Gather systemctl show output for each service
       ansible.builtin.command:
-        cmd: "systemctl show {{ item }} --no-pager"
+        cmd: "systemctl show {{ item }} --no-pager --property=Id,ActiveState,SubState,LoadState,UnitFileState,MainPID,Result,ExecMainStatus,NRestarts"
       loop: "{{ services }}"
       ignore_errors: yes
       register: svc_detailed
@@ -29,17 +29,23 @@
       loop: "{{ svc_detailed.results }}"
       when: item.stdout_lines is defined
 
-    - name: Add FAILED/OK flag
+    - name: Add FAILED/OK flag and simplify output
       set_fact:
-        service_status_summary: >-
-          {% set ns = namespace(new_dict={}) %}
-          {% for key, value in service_status_summary.items() %}
-          {%   set _ = ns.new_dict.update({key: value | combine({'Status': 'FAILED' if value.ActiveState != 'active' else 'OK'})}) %}
-          {% endfor %}
-          {{ ns.new_dict }}
+        simplified_summary: "{{ simplified_summary | default({}) | combine({item.key: {
+          'service': item.key,
+          'status': 'OK' if item.value.ActiveState == 'active' else 'FAILED',
+          'active_state': item.value.ActiveState | default('unknown'),
+          'sub_state': item.value.SubState | default('unknown'),
+          'load_state': item.value.LoadState | default('unknown'),
+          'enabled': item.value.UnitFileState | default('unknown'),
+          'main_pid': item.value.MainPID | default('0'),
+          'result': item.value.Result | default('unknown'),
+          'restarts': item.value.NRestarts | default('0')
+        }}) }}"
+      loop: "{{ service_status_summary | dict2items }}"
       when: service_status_summary is defined
 
-    - name: Show final service status
+    - name: Show simplified service status
       ansible.builtin.debug:
-        var: service_status_summary
-      when: service_status_summary is defined
+        var: simplified_summary
+      when: simplified_summary is defined
