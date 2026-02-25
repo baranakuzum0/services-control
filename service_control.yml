@@ -21,13 +21,7 @@
 
     - name: Build clean YAML service status from systemctl
       set_fact:
-        service_status_summary: "{{ service_status_summary | default({}) | combine({ item: { 
-          'load_state': (svc_output.LoadState | default('absent')),
-          'active_state': (svc_output.ActiveState | default('absent')),
-          'sub_state': (svc_output.SubState | default('absent')),
-          'enabled': (svc_output.UnitFileState | default('absent')),
-          'result': (svc_output.Result | default('none'))
-        }}) }}"
+        service_status_summary: "{{ service_status_summary | default({}) | combine({ item: svc_output }) }}"
       loop: "{{ services_to_check }}"
       loop_control:
         loop_var: item
@@ -35,7 +29,13 @@
         svc_output: >-
           {{
             dict(
-              (svc_status.results | selectattr('item','equalto',item) | map(attribute='stdout_lines') | list | first | map('split', '=') | map('map','trim') | map('list') | list) | items2dict
+              svc_status.results
+              | selectattr('item','equalto',item)
+              | map(attribute='stdout_lines')
+              | first
+              | map('split', '=')
+              | map('map', 'trim')
+              | map('list')
             )
           }}
 
