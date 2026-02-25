@@ -1,7 +1,7 @@
 ---
 - name: Enforce Service Health and show YAML safely
   hosts: all
-  gather_facts: no
+  gather_facts: false
   vars:
     services:
       - rsyslog.service
@@ -9,20 +9,21 @@
 
   tasks:
 
-    - name: Ensure services are started
+    - name: Ensure services are started and enabled (ignore errors)
       ansible.builtin.systemd:
         name: "{{ item }}"
         state: started
         enabled: yes
       loop: "{{ services }}"
       ignore_errors: yes
+      register: start_results
 
     - name: Gather systemctl show output for each service
       ansible.builtin.command:
         cmd: "systemctl show {{ item }} --no-pager"
-      register: svc_detailed
       loop: "{{ services }}"
       ignore_errors: yes
+      register: svc_detailed
 
     - name: Build clean YAML service status safely
       set_fact:
@@ -30,23 +31,23 @@
           {{
             dict(
               services | zip(
-                svc_detailed.results | map(attribute='stdout_lines') | map('map', 'split', '=', 1) | map('map', 'trim') | map('items2dict_safe')
+                svc_detailed.results | map(attribute='stdout_lines') | map('community.general.list_to_dict','=',0)
               )
             )
           }}
 
-    - name: Show final clean YAML
+    - name: Highlight failed services
+      set_fact:
+        service_status_summary: >-
+          {{
+            service_status_summary | dict2items
+            | map(
+                'combine', 
+                {"value": item.value | combine({"Status": "FAILED" if item.value.ActiveState != "active" else "OK"})}
+              )
+            | items2dict
+          }}
+
+    - name: Show final service status
       ansible.builtin.debug:
         var: service_status_summary
-
-# Custom filter plugin items2dict_safe (roles/filter_plugins/items2dict_safe.py)
-# Bu filter list of lists alır ve dict’e çevirir, hatalı veri olsa bile playbook fail olmaz
-# İçeriği:
-# def items2dict_safe(l):
-#     try:
-#         return dict(l)
-#     except:
-#         return {"_error": "could not convert to dict"}
-# class FilterModule(object):
-#     def filters(self):
-#         return {"items2dict_safe": items2dict_safe}
