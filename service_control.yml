@@ -32,16 +32,23 @@
           {{
             service_status_summary | default({}) | combine({
               item: {
-                'enabled': (ansible_facts.services[item].enabled | default('absent')),
+                'enabled': (
+                  ansible_facts.services[item].enabled | default('absent')
+                  if item in ansible_facts.services else 'absent'
+                ),
                 'state': (
-                  ansible_facts.services[item].state
+                  ansible_facts.services[item].state | default(
+                    (systemd_result.results[loop.index0].failed | ternary('failed','absent'))
+                  )
                   if item in ansible_facts.services else
-                  (systemd_result.results[loop.index0].failed | ternary('failed', 'absent'))
+                    (systemd_result.results[loop.index0].failed | ternary('failed','absent'))
                 ),
                 'active_state': (
-                  ansible_facts.services[item].active_state
+                  ansible_facts.services[item].active_state | default(
+                    (systemd_result.results[loop.index0].failed | ternary('failed','absent'))
+                  )
                   if item in ansible_facts.services else
-                  (systemd_result.results[loop.index0].failed | ternary('failed', 'absent'))
+                    (systemd_result.results[loop.index0].failed | ternary('failed','absent'))
                 )
               }
             })
