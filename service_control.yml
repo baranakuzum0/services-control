@@ -25,12 +25,6 @@
       register: svc_detailed
       changed_when: false
 
-    - name: Convert stdout_lines to dict per service
-      set_fact:
-        service_status_summary: "{{ service_status_summary|default({}) | combine({item.item: dict(item.stdout_lines | select('match', '.+=') | map('split', '=') | map('first') | zip(item.stdout_lines | select('match', '.+=') | map('split', '=') | map('last'))) }) }}"
-      loop: "{{ svc_detailed.results }}"
-      when: item.stdout_lines is defined
-
     - name: Display service status
       ansible.builtin.debug:
         msg: 
