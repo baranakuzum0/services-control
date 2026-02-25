@@ -20,25 +20,22 @@
       register: svc_logs
       ignore_errors: yes
 
-    - name: Build clean YAML service status
+    - name: Build fail-aware YAML-friendly dict
       set_fact:
-        service_status_summary: >-
-          {{
-            dict(
-              services_to_check | zip(
-                svc_status.results | map(attribute='stdout') | map('splitlines') | map('community.general.dict_from_lines', delimiter='=', trim=True) |
-                map('combine', {
-                  'status': (
-                    'FAILED' if ('exit-code' in _ | default('') or 'failed' in _ | default('') or _.ActiveState != 'active') else 'OK'
-                  ),
-                  'recent_logs': svc_logs.results[loop.index0].stdout | default('') if ('exit-code' in _ | default('') or 'failed' in _ | default('') or _.ActiveState != 'active') else ''
-                }) | list
-              )
-            )
-          }}
+        service_status_summary: "{{ service_status_summary | default({}) | combine({ item: {
+          'LoadState': (svc_status.results[loop.index0].stdout_lines | select('search','LoadState') | first).split('=')[1] | default('unknown') | trim,
+          'ActiveState': (svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] | default('unknown') | trim,
+          'SubState': (svc_status.results[loop.index0].stdout_lines | select('search','SubState') | first).split('=')[1] | default('unknown') | trim,
+          'Result': (svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] | default('unknown') | trim,
+          'UnitFileState': (svc_status.results[loop.index0].stdout_lines | select('search','UnitFileState') | first).split('=')[1] | default('unknown') | trim,
+          'status': "FAILED" if ((svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] != 'active') or
+                               ((svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] == 'exit-code') else "OK",
+          'recent_logs': svc_logs.results[loop.index0].stdout if ((svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] != 'active') or
+                                                              ((svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] == 'exit-code') else ""
+        }}) }}"
       loop: "{{ services_to_check }}"
       loop_control:
-        loop_var: loop_item
+        loop_var: item
 
     - name: Show final clean YAML
       ansible.builtin.debug:
