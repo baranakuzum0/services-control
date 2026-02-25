@@ -1,7 +1,7 @@
 ---
-- name: Enforce Service Health and show failed-aware YAML
+- name: Enforce Service Health and show real systemd status in YAML
   hosts: all
-  gather_facts: false
+  gather_facts: no
   vars:
     services:
       - rsyslog.service
@@ -9,33 +9,26 @@
 
   tasks:
 
-    - name: Ensure services are started
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: started
-      loop: "{{ services }}"
-      register: svc_status
-      ignore_errors: yes
-
-    - name: Gather detailed systemctl status
-      ansible.builtin.command:
-        cmd: "systemctl show {{ item }} --no-pager --property=ActiveState,SubState,LoadState,Result,UnitFileState"
-      loop: "{{ services }}"
+    - name: Gather systemd service status
+      command: systemctl show {{ item }} --no-page
       register: svc_detailed
-      ignore_errors: yes
+      loop: "{{ services }}"
 
-    - name: Transform each service output to dict
+    - name: Transform systemctl output to dict per service
       set_fact:
         service_status_summary: >-
           {{
             dict(
-              svc_detailed.results | 
-              map(attribute='stdout_lines') |
-              map('map', 'split', '=', 1) |
-              map('map', 'trim') |
-              map('community.general.items2dict_list') |
-              zip(services) |
-              map('reverse') |
-              list
+              services | zip(
+                svc_detailed.results | map(attribute='stdout_lines') | map('map','split','=',1') | map('map','trim') | map('items2dict')
+              )
             )
+          }}
+
+    - name: Highlight failed/activating services
+      debug:
+        msg: >-
+          {{
+            service_status_summary | dict2items | 
+            map('combine', {'status': ("FAILED" if item.value.ActiveState != "active" else "OK")}) | items2dict
           }}
