@@ -1,42 +1,51 @@
 ---
 - name: Enforce Service Health and show failed-aware YAML
   hosts: all
-  gather_facts: no
+  gather_facts: false
   vars:
-    services_to_check:
+    services:
       - rsyslog.service
       - zabbix-agent2.service
+
   tasks:
 
     - name: Gather systemd service status
-      ansible.builtin.shell: systemctl show {{ item }} --no-page
-      loop: "{{ services_to_check }}"
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+      loop: "{{ services }}"
       register: svc_status
       ignore_errors: yes
 
-    - name: Gather recent journal logs for failed services
-      ansible.builtin.shell: "journalctl -u {{ item }} -n 20 --no-pager"
-      loop: "{{ services_to_check }}"
-      register: svc_logs
+    - name: Gather detailed systemctl status
+      ansible.builtin.command:
+        cmd: "systemctl show {{ item }} --no-pager --property=ActiveState,SubState,LoadState,Result,UnitFileState"
+      loop: "{{ services }}"
+      register: svc_detailed
       ignore_errors: yes
 
-    - name: Build fail-aware YAML-friendly dict
-      set_fact:
-        service_status_summary: "{{ service_status_summary | default({}) | combine({ item: {
-          'LoadState': (svc_status.results[loop.index0].stdout_lines | select('search','LoadState') | first).split('=')[1] | default('unknown') | trim,
-          'ActiveState': (svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] | default('unknown') | trim,
-          'SubState': (svc_status.results[loop.index0].stdout_lines | select('search','SubState') | first).split('=')[1] | default('unknown') | trim,
-          'Result': (svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] | default('unknown') | trim,
-          'UnitFileState': (svc_status.results[loop.index0].stdout_lines | select('search','UnitFileState') | first).split('=')[1] | default('unknown') | trim,
-          'status': "FAILED" if ((svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] != 'active') or
-                               ((svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] == 'exit-code') else "OK",
-          'recent_logs': svc_logs.results[loop.index0].stdout if ((svc_status.results[loop.index0].stdout_lines | select('search','ActiveState') | first).split('=')[1] != 'active') or
-                                                              ((svc_status.results[loop.index0].stdout_lines | select('search','Result') | first).split('=')[1] == 'exit-code') else ""
-        }}) }}"
-      loop: "{{ services_to_check }}"
-      loop_control:
-        loop_var: item
+    - name: Gather recent journal logs for failed services
+      ansible.builtin.command:
+        cmd: "journalctl -u {{ item }} -n 5 --no-pager"
+      loop: "{{ services }}"
+      register: svc_journal
+      ignore_errors: yes
 
-    - name: Show final clean YAML
+    - name: Build clean YAML service status
+      set_fact:
+        service_status_summary: >-
+          {{
+            dict(
+              svc_detailed.results | map('extract', ['stdout_lines']) | map('map','split','=',1') | map('map','trim') | map('map','list') | map('items2dict') | zip(services) | map('reverse') | list
+            )
+          }}
+
+    - name: Show final service status in clean YAML
       ansible.builtin.debug:
         var: service_status_summary
+
+    - name: Alert if any service is failed
+      ansible.builtin.debug:
+        msg: "⚠️ Service {{ item.key }} has failed! ActiveState={{ item.value.ActiveState }}, SubState={{ item.value.SubState }}"
+      loop: "{{ service_status_summary|dict2items }}"
+      when: item.value.ActiveState not in ['active', 'activating'] or item.value.Result != 'success'
