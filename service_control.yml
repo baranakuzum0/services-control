@@ -24,28 +24,18 @@
       register: svc_detailed
       ignore_errors: yes
 
-    - name: Build clean YAML service status
+    - name: Transform each service output to dict
       set_fact:
         service_status_summary: >-
           {{
             dict(
               svc_detailed.results | 
-              map(attribute='stdout_lines') | 
-              map('map', 'split', '=', 1) | 
-              map('map', 'trim') | 
-              map('items2dict') | 
-              zip(services) | 
-              map('reverse') | 
+              map(attribute='stdout_lines') |
+              map('map', 'split', '=', 1) |
+              map('map', 'trim') |
+              map('community.general.items2dict_list') |
+              zip(services) |
+              map('reverse') |
               list
             )
           }}
-
-    - name: Show final clean YAML
-      ansible.builtin.debug:
-        var: service_status_summary
-
-    - name: Alert if any service is failed
-      ansible.builtin.debug:
-        msg: "⚠️ Service {{ item.key }} has failed! ActiveState={{ item.value.ActiveState }}, SubState={{ item.value.SubState }}"
-      loop: "{{ service_status_summary | dict2items }}"
-      when: item.value.ActiveState not in ['active'] or item.value.Result != 'success'
