@@ -11,30 +11,31 @@
 
   tasks:
 
-    - name: Check if service exists
-      command: systemctl status {{ item }}
-      register: service_check
-      ignore_errors: yes
-      loop: "{{ services_to_check }}"
-      changed_when: false
-
-    - name: Ensure services are enabled and started
-      systemd:
-        name: "{{ item.item }}"
-        enabled: yes
-        state: started
-      loop: "{{ service_check.results }}"
-      when: item.rc == 0
-      register: service_result
-
-    - name: Collect final service facts
+    - name: Gather all service facts
       service_facts:
 
-    - name: Build YAML-friendly output
+    - name: Build YAML-friendly service status
       set_fact:
-        service_status_summary: "{{ service_status_summary|default({}) | combine({ item: { 'enabled': ansible_facts.services[item].enabled, 'state': ansible_facts.services[item].state, 'active_state': ansible_facts.services[item].active_state } }) }}"
+        service_status_summary: >-
+          {{
+            service_status_summary | default({}) | combine({
+              item: {
+                'enabled': (ansible_facts.services[item].enabled | default('absent')),
+                'state': (ansible_facts.services[item].state | default('absent')),
+                'active_state': (ansible_facts.services[item].active_state | default('absent'))
+              }
+            })
+          }}
       loop: "{{ services_to_check }}"
 
-    - name: Show service status as clean YAML
+    - name: Ensure services are enabled and started if they exist
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop: "{{ services_to_check }}"
+      ignore_errors: yes
+
+    - name: Show final service status in clean YAML
       debug:
         var: service_status_summary
