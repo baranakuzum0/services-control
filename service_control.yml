@@ -1,4 +1,3 @@
----
 - name: Enforce Service Health and show YAML safely
   hosts: all
   gather_facts: false
@@ -26,18 +25,21 @@
 
     - name: Convert stdout_lines to dict per service
       set_fact:
-        service_status_summary: "{{ service_status_summary|default({}) | combine({item.item: dict((line.split('=',1)|map('trim')|list) for line in item.stdout_lines if '=' in line)}) }}"
+        service_status_summary: "{{ service_status_summary|default({}) | combine({item.item: dict(item.stdout_lines | select('match', '.+=') | map('split', '=') | map('first') | zip(item.stdout_lines | select('match', '.+=') | map('split', '=') | map('last'))) }) }}"
       loop: "{{ svc_detailed.results }}"
+      when: item.stdout_lines is defined
 
     - name: Add FAILED/OK flag
       set_fact:
         service_status_summary: >-
-          {{
-            service_status_summary | dict2items
-            | map('combine', {"value": item.value | combine({"Status": "FAILED" if item.value.ActiveState != "active" else "OK"})})
-            | items2dict
-          }}
+          {% set ns = namespace(new_dict={}) %}
+          {% for key, value in service_status_summary.items() %}
+          {%   set _ = ns.new_dict.update({key: value | combine({'Status': 'FAILED' if value.ActiveState != 'active' else 'OK'})}) %}
+          {% endfor %}
+          {{ ns.new_dict }}
+      when: service_status_summary is defined
 
     - name: Show final service status
       ansible.builtin.debug:
         var: service_status_summary
+      when: service_status_summary is defined
