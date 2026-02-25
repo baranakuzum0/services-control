@@ -1,44 +1,45 @@
 ---
-- name: Enforce Service Health and show real systemd status in YAML
+- name: Enforce Service Health and show failed-aware YAML
   hosts: all
-  become: yes
   gather_facts: no
-
   vars:
     services_to_check:
       - rsyslog.service
       - zabbix-agent2.service
-
   tasks:
 
-    - name: Gather real systemd status for each service
-      command: systemctl show "{{ item }}" --no-page --all --property=ActiveState,SubState,LoadState,UnitFileState,Result
+    - name: Gather systemd service status
+      ansible.builtin.shell: systemctl show {{ item }} --no-page
       loop: "{{ services_to_check }}"
-      loop_control:
-        loop_var: item
       register: svc_status
       ignore_errors: yes
 
-    - name: Build clean YAML service status from systemctl
-      set_fact:
-        service_status_summary: "{{ service_status_summary | default({}) | combine({ item: svc_output }) }}"
+    - name: Gather recent journal logs for failed services
+      ansible.builtin.shell: "journalctl -u {{ item }} -n 20 --no-pager"
       loop: "{{ services_to_check }}"
-      loop_control:
-        loop_var: item
-      vars:
-        svc_output: >-
+      register: svc_logs
+      ignore_errors: yes
+
+    - name: Build clean YAML service status
+      set_fact:
+        service_status_summary: >-
           {{
             dict(
-              svc_status.results
-              | selectattr('item','equalto',item)
-              | map(attribute='stdout_lines')
-              | first
-              | map('split', '=')
-              | map('map', 'trim')
-              | map('list')
+              services_to_check | zip(
+                svc_status.results | map(attribute='stdout') | map('splitlines') | map('community.general.dict_from_lines', delimiter='=', trim=True) |
+                map('combine', {
+                  'status': (
+                    'FAILED' if ('exit-code' in _ | default('') or 'failed' in _ | default('') or _.ActiveState != 'active') else 'OK'
+                  ),
+                  'recent_logs': svc_logs.results[loop.index0].stdout | default('') if ('exit-code' in _ | default('') or 'failed' in _ | default('') or _.ActiveState != 'active') else ''
+                }) | list
+              )
             )
           }}
+      loop: "{{ services_to_check }}"
+      loop_control:
+        loop_var: loop_item
 
-    - name: Show final clean YAML with real systemd status
-      debug:
+    - name: Show final clean YAML
+      ansible.builtin.debug:
         var: service_status_summary
