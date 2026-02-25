@@ -1,0 +1,38 @@
+---
+- name: Enforce Service Health
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  vars:
+    services_to_check:
+      - rsyslog
+      - zabbix-agent2
+
+  tasks:
+
+    - name: Check service existence
+      command: systemctl status {{ item }}
+      register: service_check
+      ignore_errors: yes
+      loop: "{{ services_to_check }}"
+      changed_when: false
+
+    - name: Ensure services are enabled and started
+      systemd:
+        name: "{{ item.item }}"
+        enabled: yes
+        state: started
+      loop: "{{ service_check.results }}"
+      when: item.rc == 0
+
+    - name: Get final status
+      command: systemctl is-active {{ item }}
+      register: final_status
+      loop: "{{ services_to_check }}"
+      changed_when: false
+
+    - name: Show final result
+      debug:
+        msg: "Service {{ item.item }} status: {{ item.stdout }}"
+      loop: "{{ final_status.results }}"
