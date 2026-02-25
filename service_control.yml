@@ -6,8 +6,8 @@
 
   vars:
     services_to_check:
-      - rsyslog
-      - zabbix-agent2
+      - rsyslog.service
+      - zabbix-agent2.service
 
   tasks:
 
