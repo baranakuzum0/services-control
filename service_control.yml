@@ -15,6 +15,17 @@
         enabled: yes
       loop: "{{ services }}"
       ignore_errors: yes
+      register: service_start_results
+
+    - name: Show service start results
+      ansible.builtin.debug:
+        msg:
+          - "Servis: {{ item.item }}"
+          - "Başarılı: {{ item is success }}"
+          - "Değişiklik: {{ item.changed }}"
+          - "Hata: {{ item.failed | default(false) }}"
+      loop: "{{ service_start_results.results }}"
+      when: service_start_results.results is defined
 
     - name: Gather systemctl show output for each service
       ansible.builtin.command:
@@ -22,6 +33,7 @@
       loop: "{{ services }}"
       ignore_errors: yes
       register: svc_detailed
+      changed_when: false
 
     - name: Convert stdout_lines to dict per service
       set_fact:
@@ -29,23 +41,26 @@
       loop: "{{ svc_detailed.results }}"
       when: item.stdout_lines is defined
 
-    - name: Add FAILED/OK flag and simplify output
-      set_fact:
-        simplified_summary: "{{ simplified_summary | default({}) | combine({item.key: {
-          'service': item.key,
-          'status': 'OK' if item.value.ActiveState == 'active' else 'FAILED',
-          'active_state': item.value.ActiveState | default('unknown'),
-          'sub_state': item.value.SubState | default('unknown'),
-          'load_state': item.value.LoadState | default('unknown'),
-          'enabled': item.value.UnitFileState | default('unknown'),
-          'main_pid': item.value.MainPID | default('0'),
-          'result': item.value.Result | default('unknown'),
-          'restarts': item.value.NRestarts | default('0')
-        }}) }}"
+    - name: Display service status in human-readable format
+      ansible.builtin.debug:
+        msg: 
+          - "─────────────────────────────"
+          - "SERVİS: {{ item.key }}"
+          - "─────────────────────────────"
+          - "Durum      : {{ '✅ OK' if item.value.ActiveState == 'active' else '❌ SORUNLU' }}"
+          - "Aktiflik   : {{ item.value.ActiveState | default('bilinmiyor') }}"
+          - "Alt Durum  : {{ item.value.SubState | default('bilinmiyor') }}"
+          - "Yüklü mü?  : {{ item.value.LoadState | default('bilinmiyor') }}"
+          - "Enabled mi? : {{ item.value.UnitFileState | default('bilinmiyor') }}"
+          - "PID        : {{ item.value.MainPID | default('0') }}"
+          - "Sonuç      : {{ item.value.Result | default('bilinmiyor') }}"
+          - "Restart    : {{ item.value.NRestarts | default('0') }} kez"
+          - "Exit Code  : {{ item.value.ExecMainStatus | default('0') }}"
+          - "─────────────────────────────"
       loop: "{{ service_status_summary | dict2items }}"
       when: service_status_summary is defined
 
-    - name: Show simplified service status
+    - name: Show simplified summary as YAML
       ansible.builtin.debug:
-        var: simplified_summary
-      when: simplified_summary is defined
+        var: service_status_summary
+      when: service_status_summary is defined
