@@ -1,5 +1,5 @@
 ---
-- name: Enforce Service Health
+- name: Enforce Service Health with clean YAML output
   hosts: all
   become: yes
   gather_facts: no
@@ -11,7 +11,7 @@
 
   tasks:
 
-    - name: Check service existence
+    - name: Check if service exists
       command: systemctl status {{ item }}
       register: service_check
       ignore_errors: yes
@@ -25,14 +25,16 @@
         state: started
       loop: "{{ service_check.results }}"
       when: item.rc == 0
+      register: service_result
 
-    - name: Get final status
-      command: systemctl is-active {{ item }}
-      register: final_status
+    - name: Collect final service facts
+      service_facts:
+
+    - name: Build YAML-friendly output
+      set_fact:
+        service_status_summary: "{{ service_status_summary|default({}) | combine({ item: { 'enabled': ansible_facts.services[item].enabled, 'state': ansible_facts.services[item].state, 'active_state': ansible_facts.services[item].active_state } }) }}"
       loop: "{{ services_to_check }}"
-      changed_when: false
 
-    - name: Show final result
+    - name: Show service status as clean YAML
       debug:
-        msg: "Service {{ item.item }} status: {{ item.stdout }}"
-      loop: "{{ final_status.results }}"
+        var: service_status_summary
