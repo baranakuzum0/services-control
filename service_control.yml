@@ -11,10 +11,10 @@
 
   tasks:
 
-    - name: Gather all service facts
+    - name: Gather all service facts (initial)
       service_facts:
 
-    - name: Build YAML-friendly service status
+    - name: Build initial YAML-friendly service status
       set_fact:
         service_status_summary: >-
           {{
@@ -35,6 +35,23 @@
         enabled: yes
       loop: "{{ services_to_check }}"
       ignore_errors: yes
+
+    - name: Refresh service facts after starting/enabling
+      service_facts:
+
+    - name: Build final YAML-friendly service status (after start/enable)
+      set_fact:
+        service_status_summary: >-
+          {{
+            service_status_summary | default({}) | combine({
+              item: {
+                'enabled': (ansible_facts.services[item].enabled | default('absent')),
+                'state': (ansible_facts.services[item].state | default('absent')),
+                'active_state': (ansible_facts.services[item].active_state | default('absent'))
+              }
+            })
+          }}
+      loop: "{{ services_to_check }}"
 
     - name: Show final service status in clean YAML
       debug:
