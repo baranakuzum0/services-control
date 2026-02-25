@@ -1,5 +1,5 @@
 ---
-- name: Enforce Service Health with clean YAML output
+- name: Enforce Service Health and show clean YAML (failed-aware)
   hosts: all
   become: yes
   gather_facts: no
@@ -11,48 +11,44 @@
 
   tasks:
 
-    - name: Gather all service facts (initial)
+    - name: Gather initial service facts
       service_facts:
 
-    - name: Build initial YAML-friendly service status
-      set_fact:
-        service_status_summary: >-
-          {{
-            service_status_summary | default({}) | combine({
-              item: {
-                'enabled': (ansible_facts.services[item].enabled | default('absent')),
-                'state': (ansible_facts.services[item].state | default('absent')),
-                'active_state': (ansible_facts.services[item].active_state | default('absent'))
-              }
-            })
-          }}
-      loop: "{{ services_to_check }}"
-
-    - name: Ensure services are enabled and started if they exist
+    - name: Try to start and enable services
       systemd:
         name: "{{ item }}"
         state: started
         enabled: yes
       loop: "{{ services_to_check }}"
       ignore_errors: yes
+      register: systemd_result
 
-    - name: Refresh service facts after starting/enabling
+    - name: Refresh service facts after start/enable
       service_facts:
 
-    - name: Build final YAML-friendly service status (after start/enable)
+    - name: Build clean YAML service status
       set_fact:
         service_status_summary: >-
           {{
             service_status_summary | default({}) | combine({
               item: {
                 'enabled': (ansible_facts.services[item].enabled | default('absent')),
-                'state': (ansible_facts.services[item].state | default('absent')),
-                'active_state': (ansible_facts.services[item].active_state | default('absent'))
+                'state': (
+                  ansible_facts.services[item].state
+                  if item in ansible_facts.services else
+                  (systemd_result.results[loop.index0].failed | ternary('failed', 'absent'))
+                ),
+                'active_state': (
+                  ansible_facts.services[item].active_state
+                  if item in ansible_facts.services else
+                  (systemd_result.results[loop.index0].failed | ternary('failed', 'absent'))
+                )
               }
             })
           }}
       loop: "{{ services_to_check }}"
 
-    - name: Show final service status in clean YAML
+    - name: Show final clean YAML
       debug:
         var: service_status_summary
+        verbosity: 0
