@@ -8,10 +8,10 @@
 
   tasks:
 
-    - name: Ensure services are started and enabled (ignore errors)
+    - name: Ensure services are restarted and enabled (ignore errors)
       ansible.builtin.systemd:
         name: "{{ item }}"
-        state: started
+        state: restarted
         enabled: yes
       loop: "{{ services }}"
       ignore_errors: yes
