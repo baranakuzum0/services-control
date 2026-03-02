@@ -5,6 +5,7 @@
     services:
       - rsyslog.service
       - zabbix-agent2.service
+      - dcservice.service
 
   tasks:
 
